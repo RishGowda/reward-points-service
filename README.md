@@ -120,3 +120,6 @@ git push -u origin main
 ```
 
 Do not commit `target/`, IDE files, credentials, tokens, or passwords.
+=======
+# reward-points-service
+>>>>>>> b2233307bd45566d3dc47f24b3c1efac9b1c15d7
