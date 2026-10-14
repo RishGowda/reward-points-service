@@ -1,125 +1,114 @@
 # Reward Points Service
 
-Spring Boot REST API that calculates reward points for each customer by calendar month and customer total.
+Spring Boot REST API for calculating customer reward points, monthly breakdowns, and total points.
 
-## Requirements
-
-- JDK 21
-- Maven 3.9+ (or use your IDE's Maven support)
+## Technology
+- Java 17
+- Spring Boot 3.5.6
+- Maven
+- Spring Web and Validation
+- Spring Data JPA
+- H2 in-memory database
+- JUnit 5 and Spring Boot Test
 
 ## Reward rules
+Points are calculated per transaction:
+- First $50: 0 points.
+- Each whole dollar above $50 through $100: 1 point.
+- Each whole dollar above $100: 2 points, plus the 50 points available in the lower band.
 
-Points are calculated **per transaction**, not on the customer's combined monthly spend:
+| Amount | Points |
+|---:|---:|
+| $45 | 0 |
+| $50 | 0 |
+| $60 | 10 |
+| $75 | 25 |
+| $100 | 50 |
+| $120 | 90 |
+| $200 | 250 |
 
-- No points for the first $50.
-- 1 point for each whole dollar above $50 up to and including $100.
-- 2 points for each whole dollar above $100.
+Fractional eligible dollars are ignored (for example, $120.99 earns 90 points).
 
-Examples: `$50 = 0`, `$75 = 25`, `$100 = 50`, `$120 = 50 + (20 × 2) = 90`.
+## API endpoints
 
-Fractional dollars are ignored when counting eligible dollars. For example, `$120.99` earns 90 points.
+### Calculate rewards from request transactions
+`POST /api/rewards/calculate`
+
+Example JSON:
+```json
+{
+  "transactions": [
+    {"customerId":"C100","transactionDate":"2026-06-15","amount":120},
+    {"customerId":"C100","transactionDate":"2026-06-28","amount":75},
+    {"customerId":"C100","transactionDate":"2026-07-10","amount":200},
+    {"customerId":"C100","transactionDate":"2026-07-20","amount":45},
+    {"customerId":"C100","transactionDate":"2026-08-05","amount":130},
+    {"customerId":"C100","transactionDate":"2026-08-15","amount":60}
+  ]
+}
+```
+
+This example returns monthly points of 115, 250, and 120, totaling 485.
+
+### Get rewards for all database customers
+`GET /api/rewards`
+
+### Get rewards for one customer
+`GET /api/rewards/{customerId}`
+
+Example response for `GET /api/rewards/1`:
+```json
+{
+  "customerId": 1,
+  "customerName": "Harish",
+  "monthlyRewards": [
+    {"year": 2026, "month": 6, "points": 115},
+    {"year": 2026, "month": 7, "points": 250},
+    {"year": 2026, "month": 8, "points": 120}
+  ],
+  "totalPoints": 485
+}
+```
+
+## Project structure
+- `controller/RewardController.java`: POST calculation endpoint.
+- `controller/RewardQueryController.java`: GET endpoints.
+- `service/RewardCalculationService.java`: request-based calculation.
+- `service/RewardQueryService.java`: database-backed customer summaries.
+- `entity/`: JPA customer and transaction entities.
+- `repository/`: Spring Data repositories.
+- `dto/`: response DTOs matching the reference response.
+- `resources/schema.sql`: database tables.
+- `resources/data.sql`: sample customer and transaction data.
+- `resources/application.properties`: H2 and server configuration.
 
 ## Run
+Requirements: JDK 17 and Maven 3.9+.
 
-From the project root:
-
+From the directory containing `pom.xml`:
 ```bash
 mvn clean test
 mvn spring-boot:run
 ```
 
-The API listens on `http://localhost:8080`.
+The service runs at `http://localhost:8080`.
 
-## Endpoint
+In Eclipse, use **Maven → Update Project**, then **Run As → Maven test**, then run `RewardPointsApplication.java`.
 
-`POST /api/rewards/calculate`
+## Test with Postman
+- `POST http://localhost:8080/api/rewards/calculate`
+- `GET http://localhost:8080/api/rewards`
+- `GET http://localhost:8080/api/rewards/1`
 
-Content-Type: `application/json`
+For POST requests, use `Content-Type: application/json` and Body → raw → JSON.
 
-Example request:
+## H2 database
+When enabled, the H2 console is at `http://localhost:8080/h2-console`.
+- JDBC URL: `jdbc:h2:mem:rewardsdb`
+- Username: `sa`
+- Password: blank
 
-```json
-{
-  "transactions": [
-    {"customerId": "C100", "transactionDate": "2026-01-05", "amount": 120.00},
-    {"customerId": "C100", "transactionDate": "2026-01-20", "amount": 75.00},
-    {"customerId": "C100", "transactionDate": "2026-02-02", "amount": 50.00},
-    {"customerId": "C200", "transactionDate": "2026-01-10", "amount": 200.00},
-    {"customerId": "C200", "transactionDate": "2026-03-14", "amount": 45.00}
-  ]
-}
-```
+The in-memory database is recreated when the application restarts.
 
-Try it with curl:
-
-```bash
-curl -X POST http://localhost:8080/api/rewards/calculate \
-  -H "Content-Type: application/json" \
-  -d '{"transactions":[{"customerId":"C100","transactionDate":"2026-01-05","amount":120.00},{"customerId":"C100","transactionDate":"2026-01-20","amount":75.00},{"customerId":"C100","transactionDate":"2026-02-02","amount":50.00},{"customerId":"C200","transactionDate":"2026-01-10","amount":200.00},{"customerId":"C200","transactionDate":"2026-03-14","amount":45.00}]}'
-```
-
-## Expected result for the curl request
-
-```json
-{
-  "customers": [
-    {
-      "customerId": "C100",
-      "monthlyRewards": [
-        {"month": "2026-01", "points": 115},
-        {"month": "2026-02", "points": 0}
-      ],
-      "totalPoints": 115
-    },
-    {
-      "customerId": "C200",
-      "monthlyRewards": [
-        {"month": "2026-01", "points": 250},
-        {"month": "2026-03", "points": 0}
-      ],
-      "totalPoints": 250
-    }
-  ]
-}
-```
-
-Months are derived from transaction dates; no month names or fixed three-month window are hard-coded. Months without any transactions are omitted. Each submitted transaction is validated, and malformed requests return HTTP 400.
-
-## Project structure
-
-```text
-reward-points-service/
-├── pom.xml
-├── README.md
-└── src
-    ├── main
-    │   ├── java/com/example/rewards
-    │   │   ├── RewardPointsApplication.java
-    │   │   ├── controller/RewardController.java
-    │   │   ├── exception/ApiError.java
-    │   │   ├── exception/GlobalExceptionHandler.java
-    │   │   ├── model/
-    │   │   └── service/RewardCalculationService.java
-    │   └── resources/application.properties
-    └── test/java/com/example/rewards
-        ├── controller/RewardControllerIntegrationTest.java
-        └── service/RewardCalculationServiceTest.java
-```
-
-## Submit to GitHub
-
-Do not submit a ZIP. Extract the project locally, create a repository, and commit the source files:
-
-```bash
-git init
-git add pom.xml README.md src
-git commit -m "Implement customer reward points REST API"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
-git push -u origin main
-```
-
-Do not commit `target/`, IDE files, credentials, tokens, or passwords.
-=======
-# reward-points-service
->>>>>>> b2233307bd45566d3dc47f24b3c1efac9b1c15d7
+## GitHub
+Commit source files, `pom.xml`, `.gitignore`, and `README.md`. Do not commit `target/`, `bin/`, passwords, credentials, or tokens.
